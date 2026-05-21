@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>意見回饋與樹狀留言板 (終極優化版)</title>
+    <style>
+        :root {
+            --bg-body: #090a0f; --bg-container: #131622; --bg-input: #1a1e2e;
+            --border-main: #23283b; --border-input: #2d354f; --text-main: #e2e8f0;
+            --text-title: #ffffff; --text-muted: #64748b; --text-body: #cbd5e1;
+            --bg-reaction: #141824; --border-reaction: #232a3d; --bg-reply: #181d2f;
+            --pagination-btn-bg: #1a1e2e;
+        }
+        [data-theme="light"] {
+            --bg-body: #f8fafc; --bg-container: #ffffff; --bg-input: #f1f5f9;
+            --border-main: #e2e8f0; --border-input: #cbd5e1; --text-main: #334155;
+            --text-title: #0f172a; --text-muted: #94a3b8; --text-body: #475569;
+            --bg-reaction: #f8fafc; --border-reaction: #e2e8f0; --bg-reply: #f1f5f9;
+            --pagination-btn-bg: #e2e8f0;
+        }
+        body {
+            background-color: var(--bg-body); color: var(--text-main); 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 40px 20px; line-height: 1.6; transition: background-color 0.3s;
+        }
+        .comment-container {
+            max-width: 680px; margin: 0 auto; background: var(--bg-container);
+            border: 1px solid var(--border-main); border-radius: 12px; padding: 32px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); position: relative;
+        }
+        .theme-toggle-btn {
+            position: absolute; top: 28px; right: 32px; background: transparent;
+            border: 1px solid var(--border-input); color: var(--text-muted);
+            border-radius: 6px; width: 36px; height: 36px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .theme-toggle-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+        .board-title { font-size: 1.5rem; font-weight: 600; color: var(--text-title); margin-bottom: 8px; }
+        .board-subtitle { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 28px; }
+        .form-group { margin-bottom: 16px; position: relative; }
+        .input-control {
+            width: 100%; background-color: var(--bg-input); border: 1px solid var(--border-input);
+            border-radius: 6px; padding: 12px 14px; color: var(--text-title); font-size: 0.95rem; box-sizing: border-box;
+        }
+        .input-control:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+        .word-counter { position: absolute; bottom: -22px; right: 4px; font-size: 0.75rem; color: var(--text-muted); font-family: monospace; }
+        .word-counter.danger { color: #f43f5e; font-weight: bold; }
+        .button-group { display: flex; gap: 12px; align-items: center; margin-top: 28px; }
+        .submit-button { background-color: #2563eb; color: #ffffff; border: none; padding: 11px 20px; font-size: 0.9rem; font-weight: 500; border-radius: 6px; cursor: pointer; }
+        .submit-button:disabled { background-color: var(--border-input); color: var(--text-muted); cursor: not-allowed; }
+        .cancel-button { background-color: transparent; color: var(--text-muted); border: 1px solid var(--border-input); padding: 10px 20px; font-size: 0.9rem; border-radius: 6px; cursor: pointer; }
+        
+        .comment-divider { height: 1px; background-color: var(--border-main); margin: 32px 0 16px 0; }
+        
+        .board-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+        .sort-select { background-color: var(--bg-input); border: 1px solid var(--border-input); color: var(--text-main); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; outline: none; }
+        
+        .status-message { text-align: center; color: var(--text-muted); font-size: 0.95rem; padding: 20px 0; }
+        .status-message.error-box { color: #ef4444; background: rgba(239, 68, 68, 0.08); border: 1px dashed #ef4444; border-radius: 6px; padding: 16px; margin: 10px 0; font-family: monospace; white-space: pre-wrap; }
+        
+        .comment-item { border-bottom: 1px solid var(--border-main); padding: 20px 0; animation: fadeIn 0.5s ease-out; }
+        .comment-item:last-child { border-bottom: none; }
+        .replies-container { margin-left: 32px; border-left: 2px solid var(--border-main); padding-left: 16px; margin-top: 12px; }
+        .reply-item { background-color: var(--bg-reply); padding: 14px; border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border-main); }
+        
+        .comment-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .comment-user { font-size: 0.9rem; font-weight: 600; color: #3b82f6; }
+        .comment-date { font-size: 0.8rem; color: var(--text-muted); }
+        .comment-body { font-size: 0.95rem; color: var(--text-body); margin: 0 0 16px 0; white-space: pre-wrap; }
+        
+        .action-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .reaction-container { display: flex; gap: 8px; }
+        .reaction-btn, .action-link-btn {
+            background-color: var(--bg-reaction); border: 1px solid var(--border-reaction);
+            border-radius: 6px; padding: 6px 10px; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+        }
+        .action-link-btn { background-color: transparent; border: none; padding: 4px 8px; }
+        .action-link-btn:hover { color: #3b82f6; }
+        .action-link-btn.delete-btn:hover { color: #f43f5e; }
+        .reaction-btn svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+        
+        .reaction-btn.voted[data-type="like"] { border-color: #3b82f6; color: #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
+        .reaction-btn.voted[data-type="dislike"] { border-color: #f43f5e; color: #f43f5e; background-color: rgba(244, 63, 94, 0.1); }
+        .reaction-btn.voted[data-type="love"] { border-color: #ec4899; color: #ec4899; background-color: rgba(236, 72, 153, 0.1); }
+        .reaction-btn.voted[data-type="haha"] { border-color: #eab308; color: #eab308; background-color: rgba(234, 179, 8, 0.1); }
+        .badge { font-family: monospace; font-size: 0.85rem; }
+        
+        .reply-form { margin-top: 12px; padding: 12px; border: 1px solid var(--border-main); border-radius: 8px; background: var(--bg-container); display: none; }
+        
+        .pagination-container { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border-main); }
+        .page-btn { background-color: var(--pagination-btn-bg); border: 1px solid var(--border-input); color: var(--text-main); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; }
+        .page-btn:hover:not(:disabled) { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+        .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .page-btn.active { background-color: #2563eb; color: #ffffff; border-color: #2563eb; font-weight: bold; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div class="comment-container" id="commentContainer">
+        <button type="button" class="theme-toggle-btn" id="themeToggle" title="切換深淺色模式">
+            <svg id="themeIcon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle></svg>
+        </button>
+
+        <h2 class="board-title">意見回饋與留言板</h2>
+        <p class="board-subtitle">歡迎留下您的寶貴意見，系統將會定期檢視回覆。</p>
+        
+        <form id="commentForm">
+            <div class="form-group"><input type="text" id="userName" class="input-control" placeholder="請輸入您的姓名或暱稱" required maxlength="50"></div>
+            <div class="form-group">
+                <textarea id="commentContent" class="input-control" rows="4" placeholder="請輸入留言內容..." required maxlength="2000"></textarea>
+                <div id="wordCounter" class="word-counter">0 / 2000</div>
+            </div>
+            <div class="button-group">
+                <button type="submit" id="submitBtn" class="submit-button">送出留言</button>
+                <button type="button" id="cancelBtn" class="cancel-button">取消留言</button>
+            </div>
+        </form>
+
+        <div class="comment-divider"></div>
+        
+        <div class="board-toolbar">
+            <select id="sortOrder" class="sort-select">
+                <option value="desc">最新留言 ⇅</option>
+                <option value="asc">最舊留言 ⇅</option>
+            </select>
+        </div>
+        
+        <div id="commentList" class="comment-list">
+            <div id="loadingStatus" class="status-message">正在連線至雲端試算表，載入留言中...</div>
+        </div>
+
+        <div id="pagination" class="pagination-container" style="display: none;"></div>
+    </div>
+
+    <script>
+        // ⚠️ 請在此處貼上您從 Apps Script 部署取得的最新完整網址
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXr5YixRCqq_zkjoehW6E-Gv59CU7JAX2bMKqHXtZHGITDaA3hZQYycjOpjWcwG08u/exec';
+
+        const commentList = document.getElementById('commentList');
+        const pagination = document.getElementById('pagination');
+        const commentForm = document.getElementById('commentForm');
+        const textarea = document.getElementById('commentContent');
+        const nameInput = document.getElementById('userName');
+        const submitBtn = document.getElementById('submitBtn');
+        const wordCounter = document.getElementById('wordCounter');
+        const sortSelect = document.getElementById('sortOrder');
+        let isFormDirty = false;
+
+        let currentPage = 1;
+        const PAGE_SIZE = 5; 
+
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('board-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+
+            if (SCRIPT_URL.includes('請貼上') || SCRIPT_URL.trim() === '') {
+                showError('【設定未完成】\n請將你的 Google Apps Script 正式網址貼到 HTML 程式碼內。'); return;
+            }
+            loadComments();
+        });
+
+        sortSelect.addEventListener('change', function() {
+            currentPage = 1; 
+            loadComments();
+        });
+
+        function loadComments() {
+            commentList.innerHTML = '<div id="loadingStatus" class="status-message">正在同步雲端留言...</div>';
+            pagination.style.display = 'none';
+            
+            const urlWithParams = `${SCRIPT_URL}?page=${currentPage}&pageSize=${PAGE_SIZE}`;
+            
+            fetch(urlWithParams, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+            .then(data => {
+                if (data.error) { showError(`【後端錯誤】\n${data.error}`); return; }
+                if (!data.comments || data.comments.length === 0) { 
+                    if (currentPage > 1) { currentPage--; loadComments(); return; }
+                    showStatus('目前尚無留言。'); 
+                    return; 
+                }
+                renderTree(data.comments);
+                renderPagination(data.totalPages);
+            })
+            .catch(err => showError(`【連線失敗】\n請確認 Apps Script 部署權限是否開啟為「所有人」，且網址完全正確。\n\n錯誤原因: ${err.message}`));
+        }
+
+        function renderTree(commentsData) {
+            commentList.innerHTML = '';
+            let mainComments = commentsData.filter(item => !item.parentId);
+            const replies = commentsData.filter(item => item.parentId);
+
+            const order = sortSelect.value;
+            if (order === 'asc') {
+                mainComments.sort((a, b) => a.rowId - b.rowId);
+            } else {
+                mainComments.sort((a, b) => b.rowId - a.rowId);
+            }
+
+            mainComments.forEach(main => {
+                const mainEl = createCommentNode(main, false);
+                commentList.appendChild(mainEl);
+
+                const repliesContainer = document.createElement('div');
+                repliesContainer.className = 'replies-container';
+                repliesContainer.id = `replies-for-${main.id}`;
+                mainEl.appendChild(repliesContainer);
+
+                const subReplies = replies.filter(r => String(r.parentId) === String(main.id));
+                subReplies.sort((a, b) => a.rowId - b.rowId);
+                
+                subReplies.forEach(reply => {
+                    const replyEl = createCommentNode(reply, true);
+                    repliesContainer.appendChild(replyEl);
+                });
+                if (subReplies.length === 0) repliesContainer.style.display = 'none';
+            });
+        }
+
+        function renderPagination(totalPages) {
+            if (totalPages <= 1) { pagination.style.display = 'none'; return; }
+            pagination.innerHTML = '';
+            pagination.style.display = 'flex';
+
+            const prevBtn = document.createElement('button');
+            prevBtn.className = 'page-btn';
+            prevBtn.innerText = '◀ 上一頁';
+            prevBtn.disabled = (currentPage === 1);
+            prevBtn.onclick = () => { currentPage--; loadComments(); };
+            pagination.appendChild(prevBtn);
+
+            for (let i = 1; i <= totalPages; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.className = `page-btn ${i === currentPage ? 'active' : ''}`;
+                pageBtn.innerText = i;
+                pageBtn.onclick = () => { currentPage = i; loadComments(); };
+                pagination.appendChild(pageBtn);
+            }
+
+            const nextBtn = document.createElement('button');
+            nextBtn.className = 'page-btn';
+            nextBtn.innerText = '下一頁 ▶';
+            nextBtn.disabled = (currentPage === totalPages);
+            nextBtn.onclick = () => { currentPage++; loadComments(); };
+            pagination.appendChild(nextBtn);
+        }
+
+        function createCommentNode(item, isReply) {
+            const div = document.createElement('div');
+            div.className = isReply ? 'reply-item' : 'comment-item';
+            div.id = `node-${item.id}`;
+            
+            div.innerHTML = `
+                <div class="comment-header">
+                    <span class="comment-user">${escapeHtml(item.name)} ${isReply ? '<small style="color:var(--text-muted);font-weight:normal;">(回覆)</small>':''}</span>
+                    <span class="comment-date">${item.date}</span>
+                </div>
+                <p class="comment-body">${escapeHtml(item.comment)}</p>
+                <div class="action-bar">
+                    <div class="reaction-container">
+                        <button class="reaction-btn" data-id="${item.id}" data-type="like" title="認同">
+                            <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>
+                            <span class="badge">${item.reactions.like}</span>
+                        </button>
+                        <button class="reaction-btn" data-id="${item.id}" data-type="dislike" title="反對">
+                            <svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm12-3h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"></path></svg>
+                            <span class="badge">${item.reactions.dislike}</span>
+                        </button>
+                        <button class="reaction-btn" data-id="${item.id}" data-type="love" title="喜愛">
+                            <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                            <span class="badge">${item.reactions.love}</span>
+                        </button>
+                        <button class="reaction-btn" data-id="${item.id}" data-type="haha" title="有趣">
+                            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9" y2="11"></line><line x1="15" y1="9" x2="15" y2="11"></line></svg>
+                            <span class="badge">${item.reactions.haha}</span>
+                        </button>
+                    </div>
+                    <div>
+                        ${!isReply ? `<button class="action-link-btn" onclick="toggleReplyForm('${item.id}')">💬 回覆</button>` : ''}
+                        <button class="action-link-btn delete-btn" onclick="deleteComment('${item.id}')">🗑️ 刪除</button>
+                    </div>
+                </div>
+               ${!isReply ? `
+<form class="reply-form" id="reply-form-${item.id}" onsubmit="event.preventDefault(); submitReply('${item.id}');">
+    <div class="form-group" style="margin-bottom:8px;"><input type="text" class="input-control r-name" placeholder="您的暱稱" required></div>
+    <div class="form-group" style="margin-bottom:8px;"><textarea class="input-control r-text" rows="2" placeholder="輸入回覆內容..." required maxlength="2000"></textarea></div>
+    <button type="submit" class="submit-button" style="padding:6px 12px; font-size:0.8rem;">送出回覆</button>
+</form>` : ''}
+            `;
+
+            const btns = div.querySelectorAll('.reaction-btn');
+            btns.forEach(btn => {
+                const type = btn.getAttribute('data-type');
+                if (localStorage.getItem(`voted_${item.id}_${type}`)) btn.classList.add('voted');
+                btn.addEventListener('click', () => handleReaction(item.id, type, btn));
+            });
+            return div;
+        }
+
+        function handleReaction(id, type, btn) {
+            const key = `voted_${id}_${type}`;
+            if (localStorage.getItem(key)) { alert('您已經表達過此心情囉！'); return; }
+            btn.disabled = true;
+            
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: "react", id: id, type: type })
+            })
+            .then(() => {
+                const badge = btn.querySelector('.badge');
+                badge.textContent = parseInt(badge.textContent || 0) + 1;
+                localStorage.setItem(key, "true"); 
+                btn.classList.add('voted');
+            })
+            .catch(e => alert('心情更新失敗'))
+            .finally(() => btn.disabled = false);
+        }
+
+        function toggleReplyForm(id) {
+            const form = document.getElementById(`reply-form-${id}`);
+            form.style.display = form.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function submitReply(parentId) {
+            const form = document.getElementById(`reply-form-${parentId}`);
+            const nameInput = form.querySelector('.r-name');
+            const textInput = form.querySelector('.r-text');
+            
+            const name = nameInput.value.trim();
+            const comment = textInput.value.trim();
+            if (!name || !comment) { alert('請填寫完整內容！'); return; }
+
+            const btn = form.querySelector('button'); 
+            btn.disabled = true;
+
+            const now = new Date();
+            const formattedDate = now.getFullYear() + '-' + 
+                String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                String(now.getDate()).padStart(2, '0') + ' ' + 
+                String(now.getHours()).padStart(2, '0') + ':' + 
+                String(now.getMinutes()).padStart(2, '0');
+
+            // ⚡【核心優化：前端先斬後奏】秒速渲染虛擬節點
+            const repliesContainer = document.getElementById(`replies-for-${parentId}`);
+            repliesContainer.style.display = 'block'; 
+            
+            const tempId = "temp_" + now.getTime();
+            const fakeItem = {
+                id: tempId,
+                parentId: parentId,
+                name: name,
+                comment: comment,
+                date: formattedDate,
+                reactions: { like: 0, dislike: 0, love: 0, haha: 0 }
+            };
+            
+            const tempNode = createCommentNode(fakeItem, true);
+            repliesContainer.appendChild(tempNode);
+
+            form.reset(); 
+            form.style.display = 'none'; 
+            btn.disabled = false; 
+
+            // 📡 後端在背景默默發送，不讓前端卡死
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: "action=add&name=" + encodeURIComponent(name) + "&comment=" + encodeURIComponent(comment) + "&parentId=" + encodeURIComponent(parentId)
+            })
+            .then(() => {
+                // 💡 4 秒後悄悄在背景同步真正的資料庫 ID，確保留言永不消失
+                setTimeout(loadComments, 4000); 
+            })
+            .catch(e => { 
+                tempNode.remove();
+                alert('網路連線中斷，回覆失敗！');
+            });
+        }
+
+        commentForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const name = nameInput.value.trim();
+            const comment = textarea.value.trim();
+            submitBtn.disabled = true;
+
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: "add", name: name, comment: comment, parentId: "" })
+            })
+            .then(() => {
+                commentForm.reset(); 
+                wordCounter.textContent = "0 / 2000"; 
+                isFormDirty = false; 
+                sortSelect.value = "desc"; 
+                currentPage = 1; 
+                setTimeout(loadComments, 1000);
+            })
+            .catch(e => alert('網路異常'))
+            .finally(() => submitBtn.disabled = false);
+        });
+
+        function deleteComment(id) {
+            const pwd = prompt("請輸入管理員安全金鑰以執行刪除：");
+            if (pwd === null) return;
+            if (!pwd.trim()) { alert("密碼不可為空！"); return; }
+
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: "delete", id: id, password: pwd })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.result === 'success') { loadComments(); } 
+                else { alert(data.error || '刪除失敗'); }
+            })
+            .catch(e => { setTimeout(loadComments, 800); });
+        }
+
+        document.getElementById('themeToggle').addEventListener('click', function() {
+            const cur = document.documentElement.getAttribute('data-theme');
+            const next = cur === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('board-theme', next); updateThemeIcon(next);
+        });
+        
+        function updateThemeIcon(t) { 
+            document.getElementById('themeIcon').innerHTML = t === 'light' ? '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line>' : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>'; 
+        }
+        
+        textarea.addEventListener('input', () => { 
+            isFormDirty = textarea.value.length > 0; 
+            const len = textarea.value.length; 
+            wordCounter.textContent = `${len} / 2000`; 
+            wordCounter.className = len >= 1900 ? 'word-counter danger' : 'word-counter'; 
+        });
+        
+        window.addEventListener('beforeunload', (e) => { if (isFormDirty) { e.preventDefault(); e.returnValue = '未送出'; } });
+        document.getElementById('cancelBtn').addEventListener('click', () => { commentForm.reset(); wordCounter.textContent = "0 / 2000"; isFormDirty = false; });
+        function showError(m) { const d = document.createElement('div'); d.className = 'status-message error-box'; d.innerText = m; commentList.innerHTML = ''; commentList.appendChild(d); pagination.style.display = 'none'; }
+        function showStatus(t) { const d = document.createElement('div'); d.className = 'status-message'; d.id = 'noCommentMessage'; d.textContent = t; commentList.innerHTML = ''; commentList.appendChild(d); pagination.style.display = 'none'; }
+        function escapeHtml(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+    </script>
+</body>
+</html>
